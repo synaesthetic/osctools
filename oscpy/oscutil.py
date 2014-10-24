@@ -13,7 +13,7 @@ class Message(object):
         self.data = data
 
     def __repr__(self):
-        return "Message('%s')" % (self.blob)
+        return "Message('%s' : %s)" % (self.address, self.data)
 
 class Bundle(object):
     '''This represents an OSC bundle'''
