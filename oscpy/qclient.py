@@ -38,6 +38,10 @@ class OSCController(QWidget):
         self.trigger.clicked.connect(self.triggerCB)
         self.toplayout.addWidget(self.trigger)
 
+        self.bundle = QPushButton('Bundle')
+        self.bundle.clicked.connect(self.bundleCB)
+        self.toplayout.addWidget(self.bundleCB)
+
         self.gridlayout = QGridLayout()
         # we need an intermediate function to capture the values of i,j
         def toggleCBFor(i,j):
@@ -56,6 +60,12 @@ class OSCController(QWidget):
 
     def triggerCB(self):
         self.sendOSC(osc_message('/trigger',[Impulse()]))
+
+    def bundleCB(self):
+        self.sendOSC(osc_bundle(Timetag(time.time()),
+                                [osc_bundle(Timetag(time.time()),
+                                            [osc_message('/trigger',[Impulse()]),
+                                             osc_bundle(Timetag(time.time()),[])])]))
 
     def toggleCB(self,state,i,j):
         self.sendOSC(osc_message('/toggle%d%d'%(i,j),[bool(state)]))

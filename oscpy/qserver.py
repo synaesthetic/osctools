@@ -54,8 +54,8 @@ class OSCWidget(QWidget):
 
         while self.oscsocket.hasPendingDatagrams():
             m,host,port = self.oscsocket.readDatagram(self.oscsocket.pendingDatagramSize())
-            while len(m):
-                (address,data,m) = read_osc_message(m)
+            (message,m) = read_osc_message(m)
+            if isinstance(message,Message):
                 l = self.osclabels.get(address)
                 if l is None:
                     row = self.gridlayout.rowCount()
@@ -64,7 +64,9 @@ class OSCWidget(QWidget):
                     self.gridlayout.addWidget(l,row,1)
                     self.osclabels[address] = l
                 l.setText(str(data))
-        
+            elif isintance(message,Bundle):
+                print message
+      
 app = QApplication(sys.argv)
 osc = OSCWidget()
 osc.resize(400,600)

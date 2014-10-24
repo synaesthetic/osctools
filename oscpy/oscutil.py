@@ -4,6 +4,28 @@ Utility functions and types for dealing with osc data
 
 import struct, time
 
+class Message(object):
+    '''This represents an OSC message'''
+
+    def __init__(self,address,data):
+        'Create an OSC message'
+        self.address = address
+        self.data = data
+
+    def __repr__(self):
+        return "Message('%s')" % (self.blob)
+
+class Bundle(object):
+    '''This represents an OSC bundle'''
+
+    def __init__(self,timetag,contents):
+        'Create an OSC bundle'
+        self.timetag = timetag
+        self.contents = contents
+
+    def __repr__(self):
+        return "Bundle(%s, %s)" % (self.timetag, self.contents)
+
 class Blob(object):
     '''This represents an OSC blob (arbritrary binary data)'''
 
@@ -33,13 +55,14 @@ class Timetag(object):
         self.time = t
 
     def __repr__(self):
-        return time.asctime(time.localtime(self.time))
+        tg = time.localtime(self.time)
+        return "Timetag('%s + %.08f')" % (time.asctime(tg),self.time-time.mktime(tg))
 
 
 def read_string(m):
     'Read an OSC encoded string from a recieved message'
     index = m.find('\0')
-    assert(index > 0)
+    assert(index >= 0)
     s = m[:index]
     remaining_start = index + 1
     while (remaining_start % 4) != 0:
@@ -58,54 +81,73 @@ def read_float(m):
 def read_blob(m):
     'Read an OSC encoded blob from a recieved message'
     len = struct.unpack('!i',m[:4])[0]
-    return (m[4:4+len],m[4+len:])
+    return (Blob(m[4:4+len]),m[4+len:])
 
 def read_timetag(m):
     'Read an OSC encoded timetag from a recieved message'
-    return (struct.unpack('!q',m[:8])[0],m[8:])
+    return (Timetag(float(struct.unpack('!q',m[:8])[0]/2.0**32)),m[8:])
 
-def read_osc_message(m,verbose=False):
-    'Read an OSC encoded message, returning a tuple of the osc address, a list of the decoded OSC data and a buffer containing any remaining data '
+def read_osc_message(m,verbose=False,indent='  '):
+    'Read an OSC encoded message, returning a tuple of a Message or Bundle and a buffer containing any remaining data '
 
-    (address,m) = read_string(m)
-    if len(m) == 0 or m[0] != ',':
-        raise RuntimeError('message missing type tag string, ignoring')
-    if verbose: print '  address: %s' % (address)
+    (s,m) = read_string(m)
+    if s == '#bundle':
+        if len(m) < 8:
+            raise RuntimeError('bundle missing timetag, ignoring')
+        (timetag,m) = read_timetag(m)
+        if verbose: print indent + 'bundle: %s' % (timetag)
+        contents = []
+        while len(m) != 0:
+            (size,remainder) = read_int(m)
+            bundle_element_m = remainder[:size]
+            m = remainder[size:]
+            (message,bundle_element_m) = read_osc_message(bundle_element_m,verbose,indent+'  ')
+            contents.append(message)
+        return (Bundle(timetag,contents),m)
+    elif s.startswith('/'):
+        address = s
 
-    (typetags,m) = read_string(m)
-    typetags = typetags[1:]
-    if verbose: print '  typetags: %s' % (typetags)
+        if len(m) == 0 or m[0] != ',':
+            raise RuntimeError('message missing type tag string, ignoring')
+        if verbose: print indent + 'message: %s' % (address)
 
-    data = []
-    for t in typetags:
-        if t == 'i':
-            (i,m) = read_int(m)
-            data.append(i)
-        elif t == 'f':
-            (f,m) = read_float(m)
-            data.append(f)
-        elif t == 's':
-            (s,m) = read_string(m)
-            data.append(s)
-        elif t == 'b':
-            (b,m) = read_blob(m)
-            data.append(b)
-        elif t == 'T':
-            data.append(True)
-        elif t == 'F':
-            data.append(False)
-        elif t == 'N':
-            data.append(None)
-        elif t == 'I':
-            data.append(Impulse())
-        elif t == 't':
-            (tm,m) = read_timetag(m)
-            data.append(Timetag(float(tm)/float(2**32)))
-        else:
-            raise RuntimeError('unknown type tag "%s", ignoring remaining message elements' % (t))
-    if verbose: print '  data: %s' % (data)
-    return (address,data,m)
+        (typetags,m) = read_string(m)
+        typetags = typetags[1:]
+        if verbose: print indent + '  typetags: %s' % (typetags)
 
+        data = []
+        for t in typetags:
+            if t == 'i':
+                (i,m) = read_int(m)
+                data.append(i)
+            elif t == 'f':
+                (f,m) = read_float(m)
+                data.append(f)
+            elif t == 's':
+                (s,m) = read_string(m)
+                data.append(s)
+            elif t == 'b':
+                (b,m) = read_blob(m)
+                data.append(b)
+            elif t == 'T':
+                data.append(True)
+            elif t == 'F':
+                data.append(False)
+            elif t == 'N':
+                data.append(None)
+            elif t == 'I':
+                data.append(Impulse())
+            elif t == 't':
+                (tm,m) = read_timetag(m)
+                data.append(tm)
+            else:
+                raise RuntimeError('unknown type tag "%s", ignoring remaining message elements' % (t))
+        if verbose: print indent + '  data: %s' % (data)
+        return (Message(address,data),m)
+    else:
+        raise RuntimeError('unrecognized OSC message contents')
+
+    
 def osc_int(i):
     'Convert an int to an OSC encoded int'
     return struct.pack('!i',i)
@@ -164,3 +206,12 @@ def osc_message(address,data):
 
     return osc_string(address) + osc_string(tags) + payload
 
+def osc_bundle(timetag,contents):
+    'Encode an OSC bundle given the specified OSC timetage and contents'
+
+    data = osc_string('#bundle')
+    data += osc_timetag(timetag.time)
+    for c in contents:
+        data += osc_int(len(c))
+        data += c
+    return data

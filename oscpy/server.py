@@ -17,6 +17,5 @@ sock.bind(('',port))
 
 while True:
     m,addr = sock.recvfrom(4096)
-    while len(m):
-        print 'got osc message from %s' % (str(addr))
-        (address,data,m) = read_osc_message(m,True)
+    print 'got osc message from %s' % (str(addr))
+    (message,m) = read_osc_message(m,True)
